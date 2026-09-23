@@ -1,0 +1,977 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MedRoster — Medical Duty Roster Generator</title>
+    <meta name="description" content="Generate printable A4 medical duty rosters. Assign morning and evening shifts week by week and export to PDF instantly.">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
+    <!-- html2pdf removed: using browser native print for reliability -->
+    <style>
+        :root {
+            --bg-base:        #070b14;
+            --bg-surface:     #0f1624;
+            --bg-card:        #151e30;
+            --bg-card-hover:  #1a2540;
+            --bg-input:       #0f1624;
+            --border:         rgba(255,255,255,0.07);
+            --border-mid:     rgba(255,255,255,0.12);
+            --border-focus:   rgba(99,179,237,0.5);
+            --text-1:         #f0f6ff;
+            --text-2:         #8fa3c0;
+            --text-3:         #4a6080;
+            --blue:    #4f9cf9;
+            --purple:  #9b7af8;
+            --amber:   #f0a841;
+            --red:     #f87171;
+            --morning-color: #f0a841;
+            --morning-bg:    rgba(240,168,65,0.12);
+            --evening-color: #9b7af8;
+            --evening-bg:    rgba(155,122,248,0.12);
+            --grad-brand: linear-gradient(135deg, #4f9cf9 0%, #9b7af8 100%);
+            --shadow-card: 0 4px 24px rgba(0,0,0,0.4);
+            --shadow-xl:   0 24px 80px rgba(0,0,0,0.6);
+            --r:  14px;
+            --r-sm: 9px;
+        }
+
+        *, *::before, *::after { margin:0; padding:0; box-sizing:border-box; }
+
+        body {
+            font-family: 'Inter', system-ui, sans-serif;
+            background: var(--bg-base);
+            color: var(--text-1);
+            min-height: 100vh;
+            overflow-x: hidden;
+            line-height: 1.5;
+        }
+
+        .ambient {
+            position: fixed; inset: 0; pointer-events: none; z-index: 0;
+            overflow: hidden;
+        }
+        .ambient::before {
+            content: '';
+            position: absolute;
+            top: -200px; left: -200px;
+            width: 700px; height: 700px;
+            background: radial-gradient(circle, rgba(79,156,249,0.07) 0%, transparent 70%);
+        }
+        .ambient::after {
+            content: '';
+            position: absolute;
+            bottom: -200px; right: -100px;
+            width: 600px; height: 600px;
+            background: radial-gradient(circle, rgba(155,122,248,0.07) 0%, transparent 70%);
+        }
+
+        .header {
+            position: sticky; top: 0; z-index: 200;
+            background: rgba(7,11,20,0.82);
+            backdrop-filter: blur(24px) saturate(180%);
+            -webkit-backdrop-filter: blur(24px) saturate(180%);
+            border-bottom: 1px solid var(--border);
+            padding: 0 36px;
+            height: 68px;
+            display: flex; align-items: center; justify-content: space-between;
+        }
+
+        .logo { display: flex; align-items: center; gap: 14px; }
+        .logo-mark {
+            width: 40px; height: 40px;
+            background: var(--grad-brand);
+            border-radius: 12px;
+            display: flex; align-items: center; justify-content: center;
+            font-size: 20px;
+            box-shadow: 0 4px 20px rgba(79,156,249,0.35);
+        }
+        .logo-name {
+            font-size: 20px; font-weight: 800; letter-spacing: -0.4px;
+            background: var(--grad-brand);
+            -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+        .logo-tagline { font-size: 11px; color: var(--text-3); font-weight: 400; margin-top: 1px; }
+        .header-actions { display: flex; align-items: center; gap: 10px; }
+
+        .btn {
+            display: inline-flex; align-items: center; gap: 7px;
+            padding: 9px 18px;
+            border-radius: var(--r-sm);
+            font-size: 13.5px; font-weight: 600;
+            cursor: pointer; border: none;
+            font-family: inherit;
+            transition: all 0.2s cubic-bezier(0.4,0,0.2,1);
+            white-space: nowrap;
+        }
+        .btn-primary {
+            background: var(--grad-brand);
+            color: white;
+            box-shadow: 0 4px 18px rgba(79,156,249,0.35);
+        }
+        .btn-primary:hover { transform: translateY(-2px); box-shadow: 0 8px 28px rgba(79,156,249,0.45); }
+        .btn-ghost {
+            background: var(--bg-card); color: var(--text-2);
+            border: 1px solid var(--border);
+        }
+        .btn-ghost:hover { background: var(--bg-card-hover); color: var(--text-1); border-color: var(--border-mid); }
+        .btn-sm { padding: 7px 13px; font-size: 12.5px; }
+
+        .app-body {
+            position: relative; z-index: 1;
+            max-width: 1480px; margin: 0 auto;
+            padding: 28px 36px 0;
+        }
+
+        .main-grid {
+            display: grid;
+            grid-template-columns: 1fr 300px;
+            gap: 20px;
+            align-items: start;
+        }
+
+        .card {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: var(--r);
+            padding: 22px;
+        }
+        .card + .card { margin-top: 16px; }
+
+        .card-head {
+            display: flex; align-items: flex-start; justify-content: space-between;
+            margin-bottom: 18px;
+        }
+        .card-title { font-size: 15px; font-weight: 700; color: var(--text-1); }
+        .card-sub { font-size: 11.5px; color: var(--text-3); margin-top: 3px; }
+
+        .week-nav {
+            display: flex; align-items: center; justify-content: space-between;
+            background: var(--bg-surface);
+            border: 1px solid var(--border);
+            border-radius: var(--r-sm);
+            padding: 12px 16px;
+            margin-bottom: 18px;
+        }
+        .nav-arrow {
+            width: 36px; height: 36px;
+            border-radius: 8px;
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            color: var(--text-2);
+            cursor: pointer;
+            display: flex; align-items: center; justify-content: center;
+            font-size: 15px;
+            transition: all 0.2s;
+        }
+        .nav-arrow:hover { background: var(--blue); border-color: var(--blue); color: white; box-shadow: 0 4px 14px rgba(79,156,249,0.4); }
+        .week-info { text-align: center; }
+        .week-range-label { font-size: 16px; font-weight: 700; letter-spacing: -0.3px; }
+        .week-year-label { font-size: 11px; color: var(--text-3); margin-top: 3px; }
+
+        .include-row { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--text-2); }
+        .switch { position: relative; width: 42px; height: 23px; }
+        .switch input { opacity: 0; width: 0; height: 0; }
+        .slider {
+            position: absolute; inset: 0;
+            background: var(--bg-surface);
+            border: 1px solid var(--border-mid);
+            border-radius: 23px;
+            cursor: pointer;
+            transition: 0.3s;
+        }
+        .slider::before {
+            content: '';
+            position: absolute;
+            width: 17px; height: 17px;
+            left: 3px; top: 2px;
+            background: var(--text-3);
+            border-radius: 50%;
+            transition: 0.3s;
+        }
+        input:checked + .slider { background: var(--blue); border-color: var(--blue); }
+        input:checked + .slider::before { transform: translateX(19px); background: white; }
+
+        .days-grid {
+            display: grid;
+            grid-template-columns: repeat(7, 1fr);
+            gap: 10px;
+        }
+
+        .day-card {
+            background: var(--bg-surface);
+            border: 1px solid var(--border);
+            border-radius: var(--r-sm);
+            padding: 14px 12px 12px;
+            cursor: pointer;
+            min-height: 160px;
+            display: flex; flex-direction: column;
+            position: relative; overflow: hidden;
+            transition: all 0.25s cubic-bezier(0.4,0,0.2,1);
+        }
+        .day-card::before {
+            content: '';
+            position: absolute; top: 0; left: 0; right: 0;
+            height: 2px;
+            background: transparent;
+            transition: 0.3s;
+        }
+        .day-card:hover { border-color: var(--border-mid); background: var(--bg-card-hover); transform: translateY(-3px); box-shadow: var(--shadow-card); }
+        .day-card:hover::before { background: var(--grad-brand); }
+        .day-card.has-data::before { background: var(--grad-brand); }
+        .day-card.today { border-color: rgba(79,156,249,0.3); }
+        .today-pip { display: none; width: 6px; height: 6px; background: var(--blue); border-radius: 50%; box-shadow: 0 0 8px rgba(79,156,249,0.6); }
+        .day-card.today .today-pip { display: block; }
+
+        .day-card-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 10px; }
+        .day-name-label { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.1em; color: var(--text-3); }
+        .day-num { font-size: 28px; font-weight: 800; line-height: 1; letter-spacing: -1px; color: var(--text-1); }
+        .day-month-label { font-size: 11px; color: var(--text-3); margin-top: 2px; }
+        .pencil-icon { font-size: 14px; opacity: 0; transition: opacity 0.2s; }
+        .day-card:hover .pencil-icon { opacity: 1; }
+
+        .shift-list { display: flex; flex-direction: column; gap: 5px; margin-top: auto; }
+        .shift-pill { display: flex; align-items: center; gap: 6px; padding: 5px 8px; border-radius: 6px; font-size: 11.5px; font-weight: 500; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+        .shift-pill.m { background: var(--morning-bg); color: var(--morning-color); }
+        .shift-pill.e { background: var(--evening-bg); color: var(--evening-color); }
+        .shift-dot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
+        .shift-pill.m .shift-dot { background: var(--morning-color); }
+        .shift-pill.e .shift-dot { background: var(--evening-color); }
+        .add-hint { margin-top: auto; text-align: center; font-size: 11.5px; color: var(--text-3); opacity: 0.7; }
+
+        .sidebar { display: flex; flex-direction: column; gap: 16px; }
+
+        .stats-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+        .stat-chip { background: var(--bg-surface); border: 1px solid var(--border); border-radius: var(--r-sm); padding: 14px 12px; text-align: center; }
+        .stat-num { font-size: 26px; font-weight: 800; letter-spacing: -1px; background: var(--grad-brand); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; }
+        .stat-lbl { font-size: 11px; color: var(--text-3); margin-top: 3px; }
+
+        .weeks-scroll { display: flex; flex-direction: column; gap: 7px; max-height: 380px; overflow-y: auto; padding-right: 4px; }
+        .weeks-scroll::-webkit-scrollbar { width: 4px; }
+        .weeks-scroll::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+        .week-row {
+            display: flex; align-items: center; justify-content: space-between;
+            padding: 10px 12px;
+            border-radius: 8px;
+            background: var(--bg-surface);
+            border: 1px solid var(--border);
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        .week-row:hover { border-color: var(--border-mid); background: var(--bg-card-hover); }
+        .week-row.is-active { border-color: rgba(79,156,249,0.35); background: rgba(79,156,249,0.04); }
+        .week-row.is-included .wcheck { background: var(--blue); border-color: var(--blue); color: white; }
+        .wlabel { font-size: 12.5px; font-weight: 600; }
+        .wsub { font-size: 11px; color: var(--text-3); margin-top: 2px; }
+        .wcheck { width: 22px; height: 22px; border-radius: 6px; border: 2px solid var(--border-mid); display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 700; transition: all 0.2s; flex-shrink: 0; }
+        .empty-list { text-align: center; padding: 24px 12px; font-size: 12.5px; color: var(--text-3); }
+
+        .preview-section {
+            position: relative; z-index: 1;
+            max-width: 1480px; margin: 0 auto;
+            padding: 20px 36px 40px;
+        }
+        .preview-topbar { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; flex-wrap: wrap; gap: 10px; }
+        .preview-topbar-left { display: flex; align-items: center; gap: 14px; }
+        .preview-topbar-right { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+
+        .title-input-wrap { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--text-2); }
+        .title-input {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            color: var(--text-1);
+            padding: 8px 14px;
+            border-radius: 9px;
+            font-size: 13px; font-family: inherit;
+            outline: none; width: 230px;
+            transition: all 0.2s;
+        }
+        .title-input:focus { border-color: var(--border-focus); box-shadow: 0 0 0 3px rgba(79,156,249,0.1); }
+
+        .a4-wrapper {
+            background: var(--bg-surface);
+            border: 1px solid var(--border);
+            border-radius: var(--r);
+            padding: 36px;
+            overflow: auto;
+            display: flex; justify-content: center;
+        }
+
+        .a4 {
+            width: 794px;
+            min-height: 1123px;
+            background: #ffffff;
+            box-shadow: 0 12px 60px rgba(0,0,0,0.55), 0 2px 8px rgba(0,0,0,0.3);
+            padding: 40px 36px 36px;
+            color: #111827;
+            font-family: 'Inter', Arial, sans-serif;
+            border-radius: 2px;
+            display: flex; flex-direction: column;
+        }
+
+        .pdf-header-block { margin-bottom: 28px; }
+        .pdf-title { font-size: 20px; font-weight: 800; color: #0f172a; text-transform: uppercase; letter-spacing: 0.06em; text-align: center; margin-bottom: 6px; }
+        .pdf-subtitle { font-size: 12px; color: #6b7280; text-align: center; }
+        .pdf-divider { height: 2px; background: linear-gradient(90deg, #4f9cf9, #9b7af8); border-radius: 2px; margin-top: 14px; }
+
+        .pdf-content { flex: 1; }
+        .week-block { margin-bottom: 22px; }
+        .week-label-tag { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; color: #6b7280; margin-bottom: 5px; }
+
+        .rtable { width: 100%; border-collapse: collapse; }
+        .rtable th, .rtable td { border: 1px solid #d1d5db; padding: 10px 14px; font-size: 12.5px; text-align: left; }
+        .rtable thead tr th { background: #eef2ff; font-weight: 700; color: #1e1b4b; text-align: center; font-size: 12px; }
+        .rtable thead tr th:first-child { text-align: left; width: 80px; }
+        .rtable td:first-child { font-weight: 700; color: #374151; background: #f9fafb; }
+        .rtable .mrow td { background: #fffbeb; }
+        .rtable .mrow td:first-child { background: #fef3c7; }
+        .rtable .erow td { background: #f5f3ff; }
+        .rtable .erow td:first-child { background: #ede9fe; }
+        .rtable thead tr th.weekend { background: #f0fdf4; color: #166534; }
+        .rtable .mrow td.weekend { background: #fefce8; }
+        .rtable .erow td.weekend { background: #faf5ff; }
+
+        .pdf-footer { margin-top: 32px; padding-top: 14px; border-top: 1px solid #e5e7eb; display: flex; justify-content: space-between; font-size: 9.5px; color: #9ca3af; }
+
+        .empty-state { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; padding: 40px; }
+        .empty-icon { font-size: 52px; margin-bottom: 16px; opacity: 0.6; }
+        .empty-title { font-size: 16px; font-weight: 700; color: #9ca3af; margin-bottom: 8px; }
+        .empty-desc { font-size: 13px; color: #c4c8d0; line-height: 1.6; }
+
+        .overlay {
+            position: fixed; inset: 0;
+            background: rgba(0,0,0,0.75);
+            backdrop-filter: blur(10px);
+            -webkit-backdrop-filter: blur(10px);
+            z-index: 900;
+            display: flex; align-items: center; justify-content: center;
+            opacity: 0; visibility: hidden;
+            transition: all 0.3s;
+        }
+        .overlay.open { opacity: 1; visibility: visible; }
+
+        .modal {
+            background: var(--bg-card);
+            border: 1px solid var(--border-mid);
+            border-radius: 20px;
+            padding: 32px;
+            width: 440px; max-width: 92vw;
+            box-shadow: var(--shadow-xl);
+            transform: scale(0.88) translateY(24px);
+            transition: all 0.35s cubic-bezier(0.34, 1.56, 0.64, 1);
+        }
+        .overlay.open .modal { transform: scale(1) translateY(0); }
+
+        .modal-day { font-size: 22px; font-weight: 800; letter-spacing: -0.5px; }
+        .modal-date { font-size: 13px; color: var(--text-2); margin-top: 4px; margin-bottom: 24px; }
+
+        .field { margin-bottom: 18px; }
+        .field-label { display: flex; align-items: center; gap: 7px; font-size: 12.5px; font-weight: 700; margin-bottom: 8px; }
+        .fld-dot { width: 8px; height: 8px; border-radius: 50%; }
+        .field-input {
+            width: 100%;
+            background: var(--bg-input);
+            border: 1px solid var(--border-mid);
+            color: var(--text-1);
+            padding: 12px 16px;
+            border-radius: 10px;
+            font-size: 14px; font-family: inherit;
+            outline: none;
+            transition: all 0.2s;
+        }
+        .field-input:focus { border-color: var(--border-focus); box-shadow: 0 0 0 3px rgba(79,156,249,0.12); }
+        .field-input::placeholder { color: var(--text-3); }
+
+        .modal-btns { display: flex; gap: 10px; margin-top: 24px; }
+        .modal-btns .btn { flex: 1; justify-content: center; }
+        .modal-btns .btn-save { flex: 2; }
+
+        .toast {
+            position: fixed;
+            bottom: 28px; right: 28px; z-index: 1000;
+            background: var(--bg-card);
+            border: 1px solid var(--border-mid);
+            border-radius: 12px;
+            padding: 13px 20px;
+            display: flex; align-items: center; gap: 10px;
+            font-size: 13.5px; font-weight: 500;
+            box-shadow: var(--shadow-xl);
+            transform: translateY(80px); opacity: 0;
+            transition: all 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
+            pointer-events: none;
+        }
+        .toast.visible { transform: translateY(0); opacity: 1; }
+        .toast.ok  { border-color: rgba(45,212,191,0.35); }
+        .toast.err { border-color: rgba(248,113,113,0.35); }
+        .toast.info{ border-color: rgba(79,156,249,0.35); }
+
+        ::-webkit-scrollbar { width: 6px; height: 6px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: var(--border-mid); border-radius: 3px; }
+
+        @keyframes fadeUp { from { opacity: 0; transform: translateY(16px); } to { opacity: 1; transform: translateY(0); } }
+        .app-body, .preview-section { animation: fadeUp 0.5s ease both; }
+
+        @media (max-width: 1080px) { .main-grid { grid-template-columns: 1fr; } .sidebar { flex-direction: row; flex-wrap: wrap; } .sidebar .card { flex: 1 1 260px; } }
+        @media (max-width: 760px) { .header { padding: 0 18px; } .app-body, .preview-section { padding: 16px 18px 0; } .preview-section { padding: 14px 18px 32px; } .days-grid { grid-template-columns: repeat(4,1fr); } .a4-wrapper { padding: 12px; } .a4 { width: 100%; min-width: 500px; padding: 28px 24px; } }
+
+        /* ── PRINT STYLES ── */
+        @media print {
+            /* Hide everything except the A4 paper */
+            body > *:not(#print-root) { display: none !important; }
+            #print-root { display: block !important; }
+            .ambient { display: none !important; }
+
+            @page {
+                size: A4 portrait;
+                margin: 0;
+            }
+
+            html, body {
+                background: white !important;
+                margin: 0 !important;
+                padding: 0 !important;
+            }
+
+            #print-root {
+                position: fixed;
+                inset: 0;
+                display: flex;
+                align-items: flex-start;
+                justify-content: center;
+                background: white;
+            }
+
+            /* Reset the a4 paper to fill the page */
+            #a4-paper {
+                width: 100% !important;
+                min-height: 0 !important;
+                box-shadow: none !important;
+                padding: 10mm 12mm !important;
+                font-size: 9.5pt !important;
+                display: block !important;
+            }
+
+            .pdf-title { font-size: 13pt !important; }
+            .pdf-subtitle { font-size: 8pt !important; }
+            .week-label-tag { font-size: 7pt !important; }
+            .rtable th, .rtable td { font-size: 7.5pt !important; padding: 5px 5px !important; }
+            .week-block { margin-bottom: 10px !important; }
+        }
+    </style>
+</head>
+<body>
+
+<div class="ambient" aria-hidden="true"></div>
+
+<!-- HEADER -->
+<header class="header" role="banner">
+    <div class="logo">
+        <div class="logo-mark" aria-hidden="true">🏥</div>
+        <div>
+            <div class="logo-name">MedRoster</div>
+            <div class="logo-tagline">Medical Duty Roster Generator</div>
+        </div>
+    </div>
+    <div class="header-actions">
+        <button id="btn-clear" class="btn btn-ghost btn-sm" onclick="clearAll()">🗑️ Clear All</button>
+        <button id="btn-generate" class="btn btn-primary" onclick="generatePDF()">⬇️ Generate PDF</button>
+    </div>
+</header>
+
+<!-- MAIN BODY -->
+<div class="app-body">
+    <div class="main-grid">
+
+        <!-- LEFT: Calendar -->
+        <div>
+            <div class="card">
+                <div class="card-head">
+                    <div>
+                        <div class="card-title">📅 Weekly Shift Input</div>
+                        <div class="card-sub">Click any day to assign Morning &amp; Evening staff names</div>
+                    </div>
+                    <label class="include-row" for="week-toggle">
+                        <span class="switch">
+                            <input type="checkbox" id="week-toggle" onchange="toggleWeekInclude()">
+                            <span class="slider"></span>
+                        </span>
+                        <span>Include in PDF</span>
+                    </label>
+                </div>
+
+                <div class="week-nav">
+                    <button class="nav-arrow" onclick="changeWeek(-1)" title="Previous week">&#9664;</button>
+                    <div class="week-info">
+                        <div class="week-range-label" id="week-range-lbl">—</div>
+                        <div class="week-year-label" id="week-year-lbl">—</div>
+                    </div>
+                    <button class="nav-arrow" onclick="changeWeek(1)" title="Next week">&#9654;</button>
+                </div>
+
+                <div class="days-grid" id="days-grid"></div>
+            </div>
+        </div>
+
+        <!-- RIGHT: Sidebar -->
+        <aside class="sidebar">
+            <div class="card">
+                <div class="card-title" style="margin-bottom:14px;">📊 Overview</div>
+                <div class="stats-row">
+                    <div class="stat-chip">
+                        <div class="stat-num" id="stat-total">0</div>
+                        <div class="stat-lbl">Weeks Added</div>
+                    </div>
+                    <div class="stat-chip">
+                        <div class="stat-num" id="stat-inc">0</div>
+                        <div class="stat-lbl">In PDF</div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="card" style="flex:1;">
+                <div class="card-head">
+                    <div>
+                        <div class="card-title">🗂️ Roster Weeks</div>
+                        <div class="card-sub">Toggle to include / exclude</div>
+                    </div>
+                    <button class="btn btn-ghost btn-sm" onclick="toggleSelectAll()">Select All</button>
+                </div>
+                <div class="weeks-scroll" id="weeks-list">
+                    <div class="empty-list">No weeks yet.<br>Navigate and add names to begin.</div>
+                </div>
+            </div>
+        </aside>
+
+    </div>
+</div>
+
+<!-- PREVIEW SECTION -->
+<section class="preview-section">
+    <div class="preview-topbar">
+        <div class="preview-topbar-left">
+            <div class="card-title">📄 PDF Preview</div>
+            <div class="card-sub">Live A4 layout — exactly what will print</div>
+        </div>
+        <div class="preview-topbar-right">
+            <div class="title-input-wrap">
+                <span>Title:</span>
+                <input type="text" id="roster-title" class="title-input"
+                    value="Duty Roster"
+                    placeholder="e.g. ICU Duty Roster"
+                    oninput="updatePreview()">
+            </div>
+            <button class="btn btn-primary" onclick="generatePDF()">⬇️ Generate PDF</button>
+        </div>
+    </div>
+
+    <div class="a4-wrapper">
+        <div class="a4" id="a4-paper">
+            <div class="empty-state">
+                <div class="empty-icon">📋</div>
+                <div class="empty-title">Nothing here yet</div>
+                <div class="empty-desc">Add staff names using the calendar above,<br>then toggle weeks on to see them here.</div>
+            </div>
+        </div>
+    </div>
+</section>
+
+<!-- MODAL -->
+<div class="overlay" id="overlay" onclick="overlayClick(event)">
+    <div class="modal" id="modal">
+        <div class="modal-day" id="modal-day">Monday</div>
+        <div class="modal-date" id="modal-date">17 August 2026</div>
+
+        <div class="field">
+            <div class="field-label">
+                <div class="fld-dot" style="background:var(--morning-color);"></div>
+                <span style="color:var(--morning-color);">Morning Shift</span>
+            </div>
+            <input id="inp-morning" class="field-input" type="text" placeholder="Enter staff name(s)…" autocomplete="off">
+        </div>
+
+        <div class="field">
+            <div class="field-label">
+                <div class="fld-dot" style="background:var(--evening-color);"></div>
+                <span style="color:var(--evening-color);">Evening Shift</span>
+            </div>
+            <input id="inp-evening" class="field-input" type="text" placeholder="Enter staff name(s)…" autocomplete="off">
+        </div>
+
+        <div class="modal-btns">
+            <button class="btn btn-ghost" onclick="closeModal()">Cancel</button>
+            <button class="btn btn-primary btn-save" onclick="saveShift()">✓ Save Shift</button>
+        </div>
+    </div>
+</div>
+
+<!-- PRINT ROOT (hidden div that holds the a4 paper for printing) -->
+<div id="print-root" style="display:none;"></div>
+
+<!-- TOAST -->
+<div class="toast" id="toast">
+    <span id="toast-icon">✅</span>
+    <span id="toast-msg">Saved!</span>
+</div>
+
+<script>
+// ── Data ──────────────────────────────────────────────────────────
+// rosterData[weekKey] = { included: bool, days: { 'YYYY-MM-DD': { morning, evening } } }
+let rosterData    = {};
+let currentMonday = weekMonday(new Date());
+let editingDate   = null;
+
+// ── Date utils ────────────────────────────────────────────────────
+function weekMonday(d) {
+    var dt  = new Date(d);
+    var day = dt.getDay();
+    var diff = day === 0 ? -6 : 1 - day;
+    dt.setDate(dt.getDate() + diff);
+    dt.setHours(0,0,0,0);
+    return dt;
+}
+function addDays(d, n) {
+    var dt = new Date(d);
+    dt.setDate(dt.getDate() + n);
+    return dt;
+}
+function iso(d)  { return d.toISOString().slice(0,10); }
+function pad(n)  { return String(n).padStart(2,'0'); }
+
+var MONS     = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+var MONTHS   = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+var DAY_S    = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
+var DAY_F    = ['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'];
+var DAY_PDF  = ['Mon','Tue','Wed','Thur','Fri','Sat','Sun'];
+
+function fmtFull(d) {
+    return pad(d.getDate()) + ' ' + MONTHS[d.getMonth()] + ' ' + d.getFullYear();
+}
+function ddmm(d) {
+    return pad(d.getDate()) + '/' + pad(d.getMonth()+1);
+}
+
+// ── Data helpers ──────────────────────────────────────────────────
+function weekKey(m) { return iso(m); }
+
+function ensureWeek(k) {
+    if (!rosterData[k]) rosterData[k] = { included: true, days: {} };
+    return rosterData[k];
+}
+function weekHasData(k) {
+    var w = rosterData[k];
+    if (!w) return false;
+    return Object.values(w.days).some(function(d){ return d.morning || d.evening; });
+}
+function weeksWithData() {
+    return Object.keys(rosterData).filter(weekHasData).sort();
+}
+
+// ── Render calendar ───────────────────────────────────────────────
+function renderCalendar() {
+    var key    = weekKey(currentMonday);
+    var wdata  = rosterData[key];
+    var sunday = addDays(currentMonday, 6);
+    var today  = iso(new Date());
+
+    document.getElementById('week-range-lbl').textContent =
+        pad(currentMonday.getDate()) + ' ' + MONS[currentMonday.getMonth()] +
+        ' — ' +
+        pad(sunday.getDate()) + ' ' + MONS[sunday.getMonth()];
+    document.getElementById('week-year-lbl').textContent = currentMonday.getFullYear();
+    document.getElementById('week-toggle').checked = wdata ? wdata.included : false;
+
+    var grid = document.getElementById('days-grid');
+    grid.innerHTML = '';
+
+    for (var i = 0; i < 7; i++) {
+        var dt      = addDays(currentMonday, i);
+        var ds      = iso(dt);
+        var day     = wdata && wdata.days && wdata.days[ds];
+        var hasData = !!(day && (day.morning || day.evening));
+        var isToday = ds === today;
+
+        var card = document.createElement('div');
+        card.className = 'day-card' + (hasData ? ' has-data' : '') + (isToday ? ' today' : '');
+        card.setAttribute('tabindex', '0');
+        card.setAttribute('title', DAY_F[i] + ' — click to edit shifts');
+
+        // capture i for closure
+        (function(idx, dateStr, dateObj) {
+            card.onclick = function() { openModal(dateStr, idx, dateObj); };
+            card.onkeydown = function(e) { if (e.key === 'Enter' || e.key === ' ') openModal(dateStr, idx, dateObj); };
+        })(i, ds, dt);
+
+        var shiftHTML = '';
+        if (day && day.morning) shiftHTML += '<div class="shift-pill m"><div class="shift-dot"></div><span>' + esc(day.morning) + '</span></div>';
+        if (day && day.evening) shiftHTML += '<div class="shift-pill e"><div class="shift-dot"></div><span>' + esc(day.evening) + '</span></div>';
+        if (!hasData) shiftHTML = '<div class="add-hint">+ Add shifts</div>';
+
+        card.innerHTML =
+            '<div class="day-card-header">' +
+                '<div>' +
+                    '<div class="day-name-label">' + DAY_S[i] + '</div>' +
+                    '<div class="day-num">' + pad(dt.getDate()) + '</div>' +
+                    '<div class="day-month-label">' + MONS[dt.getMonth()] + '</div>' +
+                '</div>' +
+                '<div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px;">' +
+                    '<span class="pencil-icon">&#9998;</span>' +
+                    '<div class="today-pip"></div>' +
+                '</div>' +
+            '</div>' +
+            '<div class="shift-list">' + shiftHTML + '</div>';
+
+        grid.appendChild(card);
+    }
+}
+
+function esc(s) {
+    return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+// ── Navigation ────────────────────────────────────────────────────
+function changeWeek(dir) {
+    currentMonday = addDays(currentMonday, dir * 7);
+    renderCalendar();
+    renderWeeksList();
+    updateStats();
+}
+
+// ── Include toggle ────────────────────────────────────────────────
+function toggleWeekInclude() {
+    var key  = weekKey(currentMonday);
+    var week = ensureWeek(key);
+    week.included = document.getElementById('week-toggle').checked;
+    renderWeeksList();
+    updateStats();
+    updatePreview();
+}
+
+// ── Modal ─────────────────────────────────────────────────────────
+function openModal(ds, dayIndex, dt) {
+    editingDate = ds;
+    var key = weekKey(currentMonday);
+    var day = rosterData[key] && rosterData[key].days && rosterData[key].days[ds];
+    document.getElementById('modal-day').textContent  = DAY_F[dayIndex];
+    document.getElementById('modal-date').textContent = fmtFull(dt);
+    document.getElementById('inp-morning').value = (day && day.morning) || '';
+    document.getElementById('inp-evening').value = (day && day.evening) || '';
+    document.getElementById('overlay').classList.add('open');
+    setTimeout(function(){ document.getElementById('inp-morning').focus(); }, 320);
+}
+
+function closeModal() {
+    document.getElementById('overlay').classList.remove('open');
+    editingDate = null;
+}
+
+function overlayClick(e) {
+    if (e.target === document.getElementById('overlay')) closeModal();
+}
+
+function saveShift() {
+    if (!editingDate) return;
+    var morning = document.getElementById('inp-morning').value.trim();
+    var evening = document.getElementById('inp-evening').value.trim();
+    var key     = weekKey(currentMonday);
+    var week    = ensureWeek(key);
+
+    if (morning || evening) {
+        week.days[editingDate] = { morning: morning, evening: evening };
+    } else {
+        delete week.days[editingDate];
+    }
+
+    closeModal();
+    renderCalendar();
+    renderWeeksList();
+    updateStats();
+    updatePreview();
+    showToast('✅', 'Shift saved!', 'ok');
+}
+
+document.addEventListener('keydown', function(e) {
+    if (e.key === 'Escape') closeModal();
+    if (e.key === 'Enter' && document.getElementById('overlay').classList.contains('open')) {
+        if (e.target && e.target.classList.contains('field-input')) saveShift();
+    }
+});
+
+// ── Weeks sidebar ─────────────────────────────────────────────────
+function renderWeeksList() {
+    var keys   = weeksWithData();
+    var curKey = weekKey(currentMonday);
+    var list   = document.getElementById('weeks-list');
+
+    if (!keys.length) {
+        list.innerHTML = '<div class="empty-list">No weeks yet.<br>Navigate and add names to begin.</div>';
+        return;
+    }
+
+    list.innerHTML = keys.map(function(k) {
+        var mon    = new Date(k);
+        var fri    = addDays(mon, 4);
+        var week   = rosterData[k];
+        var filled = Object.keys(week.days).length;
+        var isInc  = week.included;
+        var isAct  = k === curKey;
+
+        return '<div class="week-row' + (isAct ? ' is-active' : '') + (isInc ? ' is-included' : '') + '"' +
+               ' tabindex="0" onclick="navToWeek(\'' + k + '\')"' +
+               ' onkeydown="if(event.key===\'Enter\') navToWeek(\'' + k + '\')">' +
+               '<div>' +
+               '<div class="wlabel">' + pad(mon.getDate()) + ' ' + MONS[mon.getMonth()] + ' — ' + pad(fri.getDate()) + ' ' + MONS[fri.getMonth()] + '</div>' +
+               '<div class="wsub">' + filled + ' day' + (filled !== 1 ? 's' : '') + ' · ' + (isInc ? '✓ Included' : 'Excluded') + '</div>' +
+               '</div>' +
+               '<div class="wcheck">' + (isInc ? '✓' : '') + '</div>' +
+               '</div>';
+    }).join('');
+}
+
+function navToWeek(key) {
+    currentMonday = new Date(key);
+    renderCalendar();
+    renderWeeksList();
+    updateStats();
+}
+
+function toggleSelectAll() {
+    var keys    = weeksWithData();
+    var allIncl = keys.length > 0 && keys.every(function(k){ return rosterData[k].included; });
+    keys.forEach(function(k){ rosterData[k].included = !allIncl; });
+    renderCalendar();
+    renderWeeksList();
+    updateStats();
+    updatePreview();
+    showToast(allIncl ? '☐' : '☑️', allIncl ? 'All weeks deselected' : 'All weeks selected', 'info');
+}
+
+// ── Stats ─────────────────────────────────────────────────────────
+function updateStats() {
+    var all = weeksWithData();
+    var inc = all.filter(function(k){ return rosterData[k].included; });
+    document.getElementById('stat-total').textContent = all.length;
+    document.getElementById('stat-inc').textContent   = inc.length;
+}
+
+// ── PDF Preview ───────────────────────────────────────────────────
+function updatePreview() {
+    var paper  = document.getElementById('a4-paper');
+    var title  = document.getElementById('roster-title').value.trim() || 'Medical Duty Roster';
+    var keys   = weeksWithData().filter(function(k){ return rosterData[k].included; });
+
+    if (!keys.length) {
+        paper.innerHTML =
+            '<div class="empty-state">' +
+            '<div class="empty-icon">📋</div>' +
+            '<div class="empty-title">Nothing here yet</div>' +
+            '<div class="empty-desc">Add staff names using the calendar above,<br>then toggle weeks on to see them here.</div>' +
+            '</div>';
+        return;
+    }
+
+    var firstMon  = new Date(keys[0]);
+    var lastSun   = addDays(new Date(keys[keys.length-1]), 6);
+    var dateRange = pad(firstMon.getDate()) + ' ' + MONS[firstMon.getMonth()] +
+                    ' – ' + pad(lastSun.getDate()) + ' ' + MONS[lastSun.getMonth()] + ' ' + lastSun.getFullYear();
+    var genDate   = new Date().toLocaleDateString('en-GB', { day:'2-digit', month:'short', year:'numeric' });
+
+    var blocksHTML = '';
+
+    keys.forEach(function(key, idx) {
+        var mon  = new Date(key);
+        var week = rosterData[key];
+        var headers  = [];
+        var mornings = [];
+        var evenings = [];
+
+        for (var i = 0; i < 7; i++) {
+            var dt  = addDays(mon, i);
+            var ds  = iso(dt);
+            var day = week.days[ds];
+            headers.push(DAY_PDF[i] + ' (' + ddmm(dt) + ')');
+            mornings.push(esc((day && day.morning) || ''));
+            evenings.push(esc((day && day.evening) || ''));
+        }
+
+        var sun    = addDays(mon, 6);
+        var monFri = pad(mon.getDate()) + ' ' + MONS[mon.getMonth()] + ' — ' + pad(sun.getDate()) + ' ' + MONS[sun.getMonth()];
+
+        var isWeekend = function(idx) { return idx >= 5; };
+
+        blocksHTML +=
+            '<div class="week-block">' +
+            '<div class="week-label-tag">Week ' + (idx+1) + ' &nbsp;·&nbsp; ' + monFri + '</div>' +
+            '<table class="rtable" cellspacing="0">' +
+            '<thead><tr>' +
+            '<th></th>' +
+            headers.map(function(h, i){ return '<th' + (isWeekend(i) ? ' class="weekend"' : '') + '>' + h + '</th>'; }).join('') +
+            '</tr></thead>' +
+            '<tbody>' +
+            '<tr class="mrow"><td>Morning</td>' + mornings.map(function(n, i){ return '<td' + (isWeekend(i) ? ' class="weekend"' : '') + '>' + n + '</td>'; }).join('') + '</tr>' +
+            '<tr class="erow"><td>Evening</td>' + evenings.map(function(n, i){ return '<td' + (isWeekend(i) ? ' class="weekend"' : '') + '>' + n + '</td>'; }).join('') + '</tr>' +
+            '</tbody></table></div>';
+    });
+
+    paper.innerHTML =
+        '<div class="pdf-header-block">' +
+        '<div class="pdf-title">' + esc(title) + '</div>' +
+        '<div class="pdf-subtitle">' + dateRange + '</div>' +
+        '<div class="pdf-divider"></div>' +
+        '</div>' +
+        '<div class="pdf-content">' + blocksHTML + '</div>';
+}
+
+// ── PDF Generation (browser native print) ────────────────────────
+function generatePDF() {
+    var keys = weeksWithData().filter(function(k){ return rosterData[k].included; });
+    if (!keys.length) {
+        showToast('⚠️', 'No included weeks with data. Add shifts and include weeks first.', 'err');
+        return;
+    }
+
+    // Copy the rendered a4 paper content into the print root
+    var source      = document.getElementById('a4-paper');
+    var printRoot   = document.getElementById('print-root');
+    printRoot.innerHTML = source.outerHTML;
+
+    // Show print dialog — browser handles PDF save
+    window.print();
+
+    showToast('🖨️', 'Use "Save as PDF" in the print dialog.', 'info');
+}
+
+// ── Clear all ─────────────────────────────────────────────────────
+function clearAll() {
+    if (!confirm('Clear all roster data? This cannot be undone.')) return;
+    rosterData    = {};
+    currentMonday = weekMonday(new Date());
+    renderCalendar();
+    renderWeeksList();
+    updateStats();
+    updatePreview();
+    showToast('🗑️', 'All data cleared.', 'info');
+}
+
+// ── Toast ─────────────────────────────────────────────────────────
+var toastTimer;
+function showToast(icon, msg, type) {
+    var t = document.getElementById('toast');
+    document.getElementById('toast-icon').textContent = icon;
+    document.getElementById('toast-msg').textContent  = msg;
+    t.className = 'toast ' + type + ' visible';
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(function(){ t.classList.remove('visible'); }, 3200);
+}
+
+// ── Init ──────────────────────────────────────────────────────────
+renderCalendar();
+renderWeeksList();
+updateStats();
+updatePreview();
+</script>
+</body>
+</html>
